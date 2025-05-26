@@ -1,214 +1,17 @@
 import { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
 import { createGqlResponseSchema, gqlResponseSchema } from './schemas.js';
-import {graphql, GraphQLObjectType, GraphQLInputObjectType, GraphQLScalarType, GraphQLList, GraphQLString, GraphQLBoolean, GraphQLSchema, GraphQLEnumType, GraphQLNonNull, GraphQLFloat, GraphQLInt, buildSchema} from 'graphql';
-import {UUIDType} from "./types/uuid.js";
+import {graphql, GraphQLObjectType, GraphQLList, GraphQLString, GraphQLSchema, GraphQLNonNull, parse, validate} from 'graphql';
+import {UUIDType, UUIDArgs} from "./types/uuid.js";
+import {MemberTypeId, MemberType} from "./types/memberType.js";
+import {Post, CreatePostInput, ChangePostInput, CreatePostArgs, ChangePostArgs} from "./types/post.js";
+import {Profile, CreateProfileInput, ChangeProfileInput, CreateProfileArgs, ChangeProfileArgs } from "./types/profile.js";
+import {User, CreateUserInput, ChangeUserInput, CreateUserArgs, ChangeUserArgs, SubscriptionArgs} from "./types/user.js";
+import depthLimit from "graphql-depth-limit";
+
+const MAX_QUERY_DEPTH = 5;
 
 const plugin: FastifyPluginAsyncTypebox = async (fastify) => {
   const { prisma } = fastify;
-
-  const MemberTypeId = new GraphQLEnumType({
-    name: 'MemberTypeId',
-    values: {
-      BASIC: { value: 'BASIC' },
-      BUSINESS: { value: 'BUSINESS' }
-    }
-  });
-
-  const MemberType = new GraphQLObjectType({
-    name: 'MemberType',
-    fields: () => ({
-      id: { type: new GraphQLNonNull(MemberTypeId) },
-      discount: { type: new GraphQLNonNull(GraphQLFloat) },
-      postsLimitPerMonth: { type: new GraphQLNonNull(GraphQLInt) }
-    })
-  });
-
-  const Post = new GraphQLObjectType({
-    name: 'Post',
-    fields: () => ({
-      id: { type: new GraphQLNonNull(UUIDType) },
-      title: { type: new GraphQLNonNull(GraphQLString) },
-      content: { type: new GraphQLNonNull(GraphQLString) }
-    })
-  });
-
-  const Profile = new GraphQLObjectType({
-    name: 'Profile',
-    fields: () => ({
-      id: { type: new GraphQLNonNull(UUIDType) },
-      isMale: { type: new GraphQLNonNull(GraphQLBoolean) },
-      yearOfBirth: { type: new GraphQLNonNull(GraphQLInt) },
-      memberType: {
-        type: new GraphQLNonNull(MemberType),
-        resolve: (parent: UUIDArgs, _) => {
-          return prisma.profile.findUnique({
-            where: { id: parent.id },
-            include: { memberType: true }
-          }).then(profile => profile?.memberType);
-        }
-      },
-      userId: {
-        type: UUIDType,
-        resolve: (parent: UUIDArgs, _) => {
-          return prisma.profile.findUnique({
-            where: { id: parent.id },
-            include: { user: true }
-          }).then(profile => profile?.user.id);
-        }
-      }
-    })
-  });
-
-  const User = new GraphQLObjectType({
-    name: 'User',
-    fields: () => ({
-      id: { type: new GraphQLNonNull(UUIDType) },
-      name: { type: new GraphQLNonNull(GraphQLString) },
-      balance: { type: new GraphQLNonNull(GraphQLFloat) },
-      profile: {
-        type: Profile,
-        resolve: (parent: UUIDArgs, _) => {
-          return prisma.profile.findUnique({
-            where: { userId: parent.id }
-          });
-        }
-      },
-      posts: {
-        type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(Post))),
-        resolve: (parent: UUIDArgs, _) => {
-          return prisma.post.findMany({
-            where: { authorId: parent.id }
-          });
-        }
-      },
-      userSubscribedTo: {
-        type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(User))),
-        resolve: (parent: UUIDArgs, _) => {
-          return prisma.user.findMany({
-            where: { subscribedToUser: { some: { subscriberId: parent.id } } }
-          });
-        }
-      },
-      subscribedToUser: {
-        type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(User))),
-        resolve: (parent: UUIDArgs, _) => {
-          return prisma.user.findMany({
-            where: { userSubscribedTo: { some: { authorId: parent.id } } }
-          });
-        }
-      }
-    })
-  });
-
-  const ChangePostInput = new GraphQLInputObjectType({
-    name: 'ChangePostInput',
-    fields: {
-      title: { type: GraphQLString },
-      content: { type: GraphQLString }
-    }
-  });
-
-  const ChangeProfileInput = new GraphQLInputObjectType({
-    name: 'ChangeProfileInput',
-    fields: {
-      isMale: { type: GraphQLBoolean },
-      yearOfBirth: { type: GraphQLInt },
-      memberTypeId: { type: MemberTypeId }
-    }
-  });
-
-  const ChangeUserInput = new GraphQLInputObjectType({
-    name: 'ChangeUserInput',
-    fields: {
-      name: { type: GraphQLString },
-      balance: { type: GraphQLFloat }
-    }
-  });
-
-  const CreatePostInput = new GraphQLInputObjectType({
-    name: 'CreatePostInput',
-    fields: {
-      title: { type: new GraphQLNonNull(GraphQLString) },
-      content: { type: new GraphQLNonNull(GraphQLString) },
-      authorId: { type: new GraphQLNonNull(UUIDType) }
-    }
-  });
-
-  const CreateProfileInput = new GraphQLInputObjectType({
-    name: 'CreateProfileInput',
-    fields: {
-      isMale: { type: new GraphQLNonNull(GraphQLBoolean) },
-      yearOfBirth: { type: new GraphQLNonNull(GraphQLInt) },
-      userId: { type: new GraphQLNonNull(UUIDType) },
-      memberTypeId: { type: new GraphQLNonNull(MemberTypeId) }
-    }
-  });
-
-  interface CreateUserArgs {
-    dto: {
-      name: string;
-      balance: number;
-    };
-  }
-
-  interface CreateProfileArgs {
-    dto: {
-      isMale: boolean;
-      yearOfBirth: number;
-      userId: string;
-      memberTypeId: 'BASIC' | 'BUSINESS';
-    };
-  }
-
-  interface CreatePostArgs {
-    dto: {
-      title: string;
-      content: string;
-      authorId: string;
-    };
-  }
-
-  interface ChangePostArgs {
-    id: string;
-    dto: {
-      title?: string;
-      content?: string;
-    };
-  }
-
-  interface ChangeProfileArgs {
-    id: string;
-    dto: {
-      isMale?: boolean;
-      yearOfBirth?: number;
-      memberTypeId?: 'BASIC' | 'BUSINESS';
-    };
-  }
-
-  interface ChangeUserArgs {
-    id: string;
-    dto: {
-      name?: string;
-      balance?: number;
-    };
-  }
-
-  interface UUIDArgs {
-    id: string;
-  }
-
-  interface SubscriptionArgs {
-    userId: string;
-    authorId: string;
-  }
-
-  const CreateUserInput = new GraphQLInputObjectType({
-    name: 'CreateUserInput',
-    fields: {
-      name: { type: new GraphQLNonNull(GraphQLString) },
-      balance: { type: new GraphQLNonNull(GraphQLFloat) }
-    }
-  });
 
   const RootQueryType = new GraphQLObjectType({
     name: 'RootQueryType',
@@ -406,6 +209,15 @@ const plugin: FastifyPluginAsyncTypebox = async (fastify) => {
       console.log("req.body", req.body);
       const { query, variables } = req.body;
       try {
+        const parsedQuery = parse(query);
+        const validationErrors = validate(schemaUpdated, parsedQuery, [depthLimit(MAX_QUERY_DEPTH)]);
+        if (validationErrors.length > 0) {
+          return {
+            errors: validationErrors.map((error) => ({
+              message: error.message,
+            })),
+          };
+        }
         const result = await graphql({
           schema: schemaUpdated,
           source: query,
