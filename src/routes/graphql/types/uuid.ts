@@ -29,3 +29,7 @@ export const UUIDType = new GraphQLScalarType({
     return undefined;
   },
 });
+
+export interface UUIDArgs {
+  id: string;
+}
